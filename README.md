@@ -6,7 +6,7 @@ Deep Q-network (DQN) addresses this limitation by using deep neural networks (DN
 Deep Q-learning uses the experience replay technique where the past transition at each time-step is stored in a replay memory. During training, mini-batches of transitions are randomly sampled from this replay memory instead of using just the latest transition. This approach ensures a diverse and uncorrelated set of experiences for learning, thereby improving the stability and efficiency of the learning process.
 In addition, an greedy policy is used to selects and executes an action to ensure good coverage of the state and action space. Finally, through backpropagation, the weights of the main DNN are updated to minimize the loss, thus improving the accuracy of Q-value estimation.
 
-This project use Deep Q-learning to calibrate the temperature Matlab model.
+This project uses Deep Q-learning to calibrate the temperature Matlab model.
 
 ## Structure
 
