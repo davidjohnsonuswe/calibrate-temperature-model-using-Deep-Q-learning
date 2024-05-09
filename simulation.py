@@ -22,7 +22,7 @@ os.chdir(root)
 class TempModel:
 
     def __init__(self):
-        # Smallest loss
+        """Initializes the TempModel class and starts the MATLAB engine."""
         self.highscore = 19000
         self.measurementData = self.find_filtered_mat_files(mseloss_path)
         self.eng = self.startmodel()
@@ -31,7 +31,14 @@ class TempModel:
         self.oldloss = self.read_currentloss()
 
     def startmodel(self):
-        """Start MATLAB engine"""
+        """Starts the MATLAB engine and initializes the appropriate TempEstTest model.
+
+        Depending on the model type, this method initializes the appropriate
+        MATLAB function to run the simulation.
+
+        Returns:
+            matlab.engine.MatlabEngine: The initialized MATLAB engine instance.
+        """
         eng = matlab.engine.start_matlab()
         # nargout = 0, no output
         if matlab_tempEstModel == 'DogClutch':
@@ -51,6 +58,17 @@ class TempModel:
         self.eng.quit()
     
     def find_filtered_mat_files(self, folder_path):
+        """Finds and filters .mat files in the given folder.
+
+        This method retrieves all .mat files from the specified folder and filters
+        out those with specific prefixes to avoid unwanted files.
+
+        Args:
+            folder_path (str): The folder path where the .mat files are stored.
+
+        Returns:
+            list[str]: A list of filtered .mat file names (without extensions).
+        """
         # List all .mat files in the folder
         all_mat_files = [f for f in os.listdir(folder_path) if f.endswith('.mat')]
 
@@ -66,7 +84,14 @@ class TempModel:
         return filtered_files
 
     def read_currentloss(self):
-        """Return average loss of all training mat files"""
+        """Calculates the average MSE loss from all training .mat files.
+
+        This method reads the loss values from the filtered .mat files and computes
+        the average MSE loss across all elements.
+
+        Returns:
+            float: The average MSE loss.
+        """
         total_sum = 0
         total_elements = 0
         # Load mse loss data
@@ -79,14 +104,27 @@ class TempModel:
         return float(total_sum / total_elements)
 
     def readparameters(self):
-        """Read TempEstInput.m"""
+        """Reads the content of TempEstInput.m.
+
+        This method reads the content of the specified MATLAB script to retrieve
+        simulation parameters.
+
+        Returns:
+            str: The content of the TempEstInput.m script.
+        """
         with open(estinput_path, 'r') as file:
             estinput = file.read()
         return estinput
 
     def run_simulation(self, resetfile=False):
-        """Write current parameters to TempEstInput.m then run the simulation, calculate loss and store to mat file
-        """ 
+        """Updates TempEstInput.m with current parameters and runs the simulation.
+
+        This method writes the current simulation parameters to TempEstInput.m, runs
+        the simulation, calculates the loss, and stores it in a .mat file.
+
+        Args:
+            resetfile (bool): Whether to reset and start a new training cycle. Default is False.
+        """
         if resetfile:
             log = "\nReset Parameters: \n"
         else:
@@ -100,7 +138,7 @@ class TempModel:
             # Find and update the parameter value
             match = re.search(pattern, estinput)
             if match:
-                #current_value = float(match.group(1))
+                # Update the parameter value in the script
                 log += str(variable) + "= " + str(value) + ", "
                 updated_content = re.sub(pattern, f'{variable} = {value}', estinput)
                 estinput = updated_content
@@ -131,6 +169,7 @@ class TempModel:
             file.write(log)
 
     def reset(self):
+        """Resets the simulation parameters and starts a new training cycle."""
         self.paramsdict = {'AlfaCplgOilToPmpHd': 0, 'AlfaCplgOilToLmlLo': 0, 'AlfaCplgOilToLmlHi': 0,
                    'AlfaCplgOilToCplg': 0, 'AlfaCplgOilToFnGear': 0, 'AlfaCplgToPmpHd': 0,
                    'AlfaCplgToLml': 0, 'AlfaCplgToFinGear': 0, 'AirToPumpHead': 30,
@@ -141,8 +180,18 @@ class TempModel:
         self.iteration = 0
 
     def play_step(self, action):
+        """Executes a simulation step based on the given action.
 
-        # Todo: Run simulation to calculate loss
+        This method updates the simulation parameters according to the action, runs
+        the simulation, and calculates the loss. It also checks for simulation
+        termination conditions and provides rewards based on the results.
+
+        Args:
+            action (list): The action to take.
+
+        Returns:
+            tuple: Contains the reward, a boolean indicating if the simulation is over, and the average MSE loss.
+        """
         self.iteration += 1
         
         # 1. update the params, run the simulation and calculate the loss
@@ -173,6 +222,15 @@ class TempModel:
 
 
     def is_termination(self):
+        """Checks if the simulation should terminate.
+
+        This method evaluates if any parameter value exceeds the defined boundary,
+        indicating that the simulation has terminated.
+
+        Returns:
+            bool: True if the simulation should terminate, otherwise False.
+        """
+        # Check if any parameter value exceeds the boundary limit
         for variable, value in self.paramsdict.items():
             # hits boundary
             if value > 50:
@@ -180,11 +238,11 @@ class TempModel:
         return False
 
     def _move(self, action):
-        #     {'AlfaCplgOilToPmpHd': 0, 'AlfaCplgOilToLmlLo': 0, 'AlfaCplgOilToLmlHi': 0,
-        #     'AlfaCplgOilToCplg': 0, 'AlfaCplgOilToFnGear': 0, 'AlfaCplgToPmpHd': 0,
-        #     'AlfaCplgToLml': 0, 'AlfaCplgToFinGear': 0, 'AirToPumpHead': 0,
-        #     'AirToCoupling': 0, 'AirToFinalGear': 0}
+        """Updates the simulation parameters based on the given action and runs the simulation.
 
+        Args:
+            action (list): The action to take.
+        """
         if np.array_equal(action, [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]):
             self.paramsdict['AlfaCplgOilToPmpHd'] += 1
         elif np.array_equal(action, [0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]):
@@ -225,7 +283,17 @@ class TempModel:
         self.run_simulation()
 
 def find_filtered_mat_files(folder_path):
-    # List all .mat files in the folder
+    """Finds and filters .mat files in the specified folder.
+
+    This method retrieves all .mat files in the specified folder and filters
+    out files with certain prefixes to obtain a list of relevant files.
+
+    Args:
+        folder_path (str): The path where the .mat files are stored.
+
+    Returns:
+        list[str]: A list of filtered .mat file names (without extensions).
+    """
     all_mat_files = [f for f in os.listdir(folder_path) if f.endswith('.mat')]
 
     # Initialize a list to store filtered filenames
@@ -238,7 +306,13 @@ def find_filtered_mat_files(folder_path):
 
     return filtered_files
 def read_currentloss():
-    """Return average loss of all training mat files"""
+    """Calculates the average loss from all .mat files.
+
+    This method finds the relevant .mat files and computes the average MSE loss.
+
+    Returns:
+        float: The average loss calculated from the .mat files.
+    """
     total_sum = 0
     total_elements = 0
     measurementData = find_filtered_mat_files(mseloss_path)

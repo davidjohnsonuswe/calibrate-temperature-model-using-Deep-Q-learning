@@ -7,23 +7,37 @@ from simulation import TempModel
 import torch
 
 
-MAX_MEMORY = 100_000
-BATCH_SIZE = 1000
-LR = 0.001
+# Constants for agent configuration
+MAX_MEMORY = 100_000  # Maximum size of the experience replay memory
+BATCH_SIZE = 1000  # Batch size for training
+LR = 0.001  # Learning rate for Q-learning
 
 class Agent:
+    """An agent that learns from interactions with an environment using Q-learning.
+
+    The agent maintains a memory of past experiences and uses them to update its
+    Q-learning model. It also incorporates exploration and exploitation strategies
+    to learn optimal policies.
+    """
 
     def __init__(self):
-        self.n_train = 0
-        self.epsilon = 0 # randomness
-        self.gamma = 0.9 # discount rate
-        self.memory = deque(maxlen=MAX_MEMORY) # popleft()
-        self.model = Linear_QNet()
-        self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
-
+        """Initializes the agent with a model, a trainer, and an empty memory."""
+        self.n_train = 0  # Number of training iterations
+        self.epsilon = 0  # Exploration-exploitation parameter
+        self.gamma = 0.9  # Discount factor for future rewards
+        self.memory = deque(maxlen=MAX_MEMORY)  # Memory for experience replay
+        self.model = Linear_QNet()  # The Q-learning model
+        self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)  # Trainer for the model
 
     def get_state(self, simulation):
+        """Extracts the current state from the simulation.
 
+        Args:
+            simulation (TempModel): The simulation environment to extract state from.
+
+        Returns:
+            np.ndarray: An array representing the current state of the simulation.
+        """
         currentloss = simulation.read_currentloss()
         isterminated = simulation.is_termination()
         state = [
@@ -60,76 +74,113 @@ class Agent:
         return np.array(state, dtype=int)
 
     def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done)) # popleft if MAX_MEMORY is reached
+        """Stores an experience in the memory.
+
+        Args:
+            state (np.ndarray): The previous state.
+            action (list): The action taken in that state.
+            reward (float): The reward received for that action.
+            next_state (np.ndarray): The resulting state after the action.
+            done (bool): Whether the simulation has terminated.
+        """
+        self.memory.append((state, action, reward, next_state, done))
 
     def train_long_memory(self):
+        """Trains the Q-learning model with a batch of experiences from the memory.
+
+        This method samples a batch of experiences and uses them to update the model
+        through a QTrainer.
+        """
         if len(self.memory) > BATCH_SIZE:
-            mini_sample = random.sample(self.memory, BATCH_SIZE) # list of tuples
+            mini_sample = random.sample(self.memory, BATCH_SIZE) # Random sample from memory
         else:
             mini_sample = self.memory
 
         states, actions, rewards, next_states, dones = zip(*mini_sample)
         self.trainer.train_step(states, actions, rewards, next_states, dones)
-        #for state, action, reward, nexrt_state, done in mini_sample:
-        #    self.trainer.train_step(state, action, reward, next_state, done)
 
     def train_short_memory(self, state, action, reward, next_state, done):
+        """Trains the model with a single step of experience.
+
+        This method is used for online learning, where each experience is processed
+        individually.
+
+        Args:
+            state (np.ndarray): The previous state.
+            action (list): The action taken in that state.
+            reward (float): The reward received for that action.
+            next_state (np.ndarray): The resulting state after the action.
+            done (bool): Whether the simulation has terminated.
+        """
         self.trainer.train_step(state, action, reward, next_state, done)
 
     def get_action(self, state):
-        # random moves: tradeoff exploration / exploitation
-        self.epsilon = 80 - self.n_train
-        # 11 possible moves (11 parameters)
-        final_move = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-        if random.randint(0, 200) < self.epsilon:
-            move = random.randint(0, 16)
+        """Decides the action to take based on the current state.
+
+        The action is chosen either randomly (exploration) or based on the model's
+        prediction (exploitation), depending on the value of epsilon.
+
+        Args:
+            state (np.ndarray): The current state of the simulation.
+
+        Returns:
+            list: A list representing the action to take (one-hot encoded).
+        """
+        self.epsilon = 80 - self.n_train  # Update epsilon based on training count
+        
+        # 17 possible moves/actions
+        final_move = [0] * 17  # Initialize the action list with zeros
+        if random.randint(0, 200) < self.epsilon:  # Random exploration
+            move = random.randint(0, 16)  # Randomly select a move
             final_move[move] = 1
         else:
-            state0 = torch.tensor(state, dtype=torch.float)
-            prediction = self.model(state0)
-            move = torch.argmax(prediction).item()
-            final_move[move] = 1
+            state0 = torch.tensor(state, dtype=torch.float)  # Convert state to tensor
+            prediction = self.model(state0)  # Get the model's prediction
+            move = torch.argmax(prediction).item()  # Find the best action
+            final_move[move] = 1  # Set the action in the final_move list
 
         return final_move
 
 
 def train():
     plot_avgmseloss = []
-    record = 20000
-    highavgmseloss = 20000
-    agent = Agent()
-    simulation = TempModel()
+    record = 20000  # Initial record value for MSE loss
+    highavgmseloss = 20000  # Initial high value for MSE loss
+    agent = Agent()  # Instantiate the agent
+    simulation = TempModel()  # Instantiate the simulation environment
     while True:
-        # get old state
+        # Get old state
         state_old = agent.get_state(simulation)
 
-        # get move
+        # Get move
         final_move = agent.get_action(state_old)
 
-        # perform move and get new state
+        # Perform move and get new state
         reward, done, avgmseloss = simulation.play_step(final_move)
         if avgmseloss < highavgmseloss:
             highavgmseloss = avgmseloss
         state_new = agent.get_state(simulation)
 
-        # train short memory
+        # Train short memory
         agent.train_short_memory(state_old, final_move, reward, state_new, done)
 
-        # remember
+        # Remember
         agent.remember(state_old, final_move, reward, state_new, done)
         
         if done:
-            # train long memory, plot result
+            # Train long memory, plot result
             simulation.reset()
             agent.n_train += 1
             agent.train_long_memory()
 
+            # Update the model if a new record is set
             if highavgmseloss < record:
                 record = highavgmseloss
-                agent.model.save()
+                agent.model.save()  # Save the model if it's the best so far
 
             print('Training', agent.n_train, 'Record MSE Loss:', record)
 
+        # Plot the MSE loss over time
         plot_avgmseloss.append(avgmseloss)
         plot(plot_avgmseloss)
 
